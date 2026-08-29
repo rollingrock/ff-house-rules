@@ -1,0 +1,9 @@
+{
+  "_comment": "News overlay applied on top of ESPN projections at board-build time. ESPN projects 17 games for EVERY player, so its numbers carry no injury discount and it knows nothing about season-enders. `mult` scales projected points; 0 removes the player from the board entirely. This is the highest-leverage manual input in the tool - a few minutes with an injury tracker before your draft is worth more than any tuning knob. Copy this file to news-overrides.json and put your own entries in it.",
+  "updated": "2026-08-28",
+  "players": {
+    "Example Player One": { "mult": 0, "note": "torn ACL in camp - out for the season, remove from the board" },
+    "Example Player Two": { "mult": 0.85, "note": "hamstring; expected to miss the first 2-3 games" },
+    "Example Player Three": { "mult": 1.06, "note": "the back ahead of him is hurt - clearer path to volume than ESPN assumes" }
+  }
+}

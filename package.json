@@ -1,0 +1,40 @@
+{
+  "name": "ff-house-rules",
+  "version": "1.0.0",
+  "description": "A fantasy football draft companion and season manager that scores every projection under your league's actual rules, not the defaults.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "fetch": "node scripts/fetch-espn.js",
+    "board": "node scripts/build-board.js",
+    "config": "node scripts/make-league-config.js",
+    "sweep": "node scripts/sweep.js",
+    "lineup": "node scripts/season.js lineup",
+    "byes": "node scripts/season.js byes"
+  },
+  "keywords": [
+    "fantasy-football",
+    "espn",
+    "espn-api",
+    "nfl",
+    "draft",
+    "vorp",
+    "lineup-optimizer"
+  ],
+  "author": "Jason Pharis",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rollingrock/ff-house-rules.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rollingrock/ff-house-rules/issues"
+  },
+  "homepage": "https://github.com/rollingrock/ff-house-rules#readme",
+  "dependencies": {},
+  "devDependencies": {},
+  "private": false
+}

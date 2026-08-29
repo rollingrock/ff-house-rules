@@ -1,0 +1,176 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ff-manager</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2430; --line:#2a3441;
+  --fg:#e6edf3; --dim:#8b98a5; --dim2:#5d6b7a;
+  --go:#3fb950; --warn:#d29922; --hot:#f85149; --acc:#58a6ff; --gold:#e3b341;
+  --QB:#f778ba; --RB:#3fb950; --WR:#58a6ff; --TE:#e3b341; --K:#8b949e; --DST:#a371f7; --IDP:#ff7b72;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.4 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
+/* ---- top bar ---- */
+header{display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex:0 0 auto}
+.lg{font-weight:700;font-size:15px;letter-spacing:.2px}
+.pill{padding:3px 10px;border-radius:20px;background:var(--panel2);color:var(--dim);font-size:12px;
+  font-variant-numeric:tabular-nums;border:1px solid var(--line)}
+#clock{font-size:20px;font-weight:800;padding:6px 18px;border-radius:8px;letter-spacing:.3px}
+#clock.me{background:var(--go);color:#04170a;animation:pulse 1.4s ease-in-out infinite}
+#clock.soon{background:var(--warn);color:#2b1d00}
+#clock.wait{background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
+header .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
+button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;
+  padding:6px 11px;cursor:pointer;font-size:12px}
+button:hover{border-color:var(--acc);color:var(--acc)}
+kbd{background:#0b0f14;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+  padding:1px 5px;font:11px ui-monospace,monospace;color:var(--dim)}
+/* ---- layout ---- */
+main{flex:1;display:grid;grid-template-columns:1fr 300px;gap:12px;padding:12px;overflow:hidden}
+.col{display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  display:flex;flex-direction:column;min-height:0}
+.card>h2{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim2);
+  padding:9px 12px;border-bottom:1px solid var(--line);font-weight:700;display:flex;gap:8px;align-items:center}
+.scroll{overflow-y:auto;min-height:0}
+.scroll::-webkit-scrollbar{width:8px}.scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+/* ---- recommendations ---- */
+.rec{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:center;
+  padding:9px 12px;border-bottom:1px solid #1e2630;cursor:pointer}
+.rec:hover{background:var(--panel2)}
+.rec.top{background:linear-gradient(90deg,rgba(63,185,80,.13),transparent)}
+.rec .idx{color:var(--dim2);font:600 12px ui-monospace,monospace;text-align:right}
+.rec .nm{font-weight:650;font-size:15px}
+.rec.top .nm{font-size:17px;font-weight:750}
+.rec .meta{color:var(--dim);font-size:11.5px;margin-top:2px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.pos{font:700 10px ui-monospace,monospace;padding:1px 5px;border-radius:3px;color:#0d1117}
+.tier{color:var(--gold);font-weight:600}
+.why{color:var(--acc);font-size:11.5px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.num .big{font-size:19px;font-weight:800;line-height:1}
+.rec.top .num .big{font-size:24px;color:var(--go)}
+.num .sub{font-size:10.5px;color:var(--dim2);margin-top:3px}
+.surv{font-weight:700}
+.surv.hi{color:var(--go)}.surv.mid{color:var(--warn)}.surv.lo{color:var(--hot)}
+/* ---- roster ---- */
+.slot{display:grid;grid-template-columns:38px 1fr auto;gap:8px;padding:5px 12px;
+  border-bottom:1px solid #1a2028;align-items:center;font-size:13px}
+.slot .lb{color:var(--dim2);font:700 10px ui-monospace,monospace}
+.slot.empty .nm{color:var(--hot);font-style:italic;opacity:.75}
+.slot .pts{color:var(--dim);font-variant-numeric:tabular-nums;font-size:11.5px}
+.bench{opacity:.62}
+/* ---- entry ---- */
+footer{flex:0 0 auto;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line);
+  display:flex;gap:12px;align-items:flex-start}
+#entry{flex:1;position:relative}
+#q{width:100%;background:#0b0f14;border:2px solid var(--line);border-radius:8px;color:var(--fg);
+  padding:11px 14px;font-size:16px;outline:none}
+#q:focus{border-color:var(--acc)}
+#results{position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--panel2);
+  border:1px solid var(--line);border-radius:8px;max-height:46vh;overflow-y:auto;display:none;z-index:9;
+  box-shadow:0 -8px 30px rgba(0,0,0,.6)}
+#results.on{display:block}
+.res{padding:8px 12px;display:flex;gap:9px;align-items:center;cursor:pointer;border-bottom:1px solid #222b36}
+.res.sel{background:var(--acc);color:#06121f}
+.res.sel .rr{color:#06121f}
+.rr{color:var(--dim);font-size:11.5px;margin-left:auto;font-variant-numeric:tabular-nums}
+#recent{width:290px;font-size:11.5px;color:var(--dim);max-height:64px;overflow-y:auto;line-height:1.6}
+#recent b{color:var(--fg);font-weight:600}
+.hint{color:var(--dim2);font-size:11px;margin-top:6px}
+.live-on{background:rgba(63,185,80,.16)!important;border-color:var(--go)!important;color:var(--go)!important}
+.live-warn{background:rgba(210,153,34,.16)!important;border-color:var(--warn)!important;color:var(--warn)!important}
+.live-off{color:var(--dim2)!important}
+#slotbtn.needslot{border-color:var(--warn);color:var(--warn);font-weight:700}
+#slotbtn.staleslot{border-color:var(--hot);color:var(--hot);font-weight:700}
+.runs{display:flex;gap:5px}
+#ahead{display:flex;gap:5px;align-items:center}
+#ahead:empty{display:none}
+.aheadlab{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim2)}
+.need{font:700 10px ui-monospace,monospace;padding:2px 6px;border-radius:4px;
+  border:1px solid var(--line);background:var(--panel2)}
+.run{font:700 10px ui-monospace,monospace;padding:2px 6px;border-radius:4px;background:var(--panel2);border:1px solid var(--line)}
+.run.hot{background:rgba(248,81,73,.18);border-color:var(--hot);color:var(--hot)}
+/* --- phone / narrow second screen --- */
+@media (max-width:820px){
+  header{flex-wrap:wrap;gap:8px 10px;padding:8px 10px}
+  header .sp{margin-left:0;width:100%;justify-content:flex-start}
+  #clock{font-size:16px;padding:5px 12px}
+  main{grid-template-columns:1fr;gap:8px;padding:8px;overflow-y:auto}
+  .col{overflow:visible}
+  .card{min-height:auto}
+  .card.recs{min-height:52vh}
+  footer{flex-direction:column;gap:8px;padding:8px}
+  #recent{width:100%;max-height:44px}
+  .rec{padding:8px 10px}
+  .rec .nm{font-size:16px}
+  .rec.top .nm{font-size:18px}
+  .num .big{font-size:20px}
+  .rec.top .num .big{font-size:22px}
+  #q{font-size:16px}          /* 16px stops iOS zooming the page on focus */
+  .hint{display:none}
+}
+@media (max-width:820px) and (orientation:landscape){
+  main{grid-template-columns:1fr 240px}
+}
+#toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:var(--panel2);
+  border:1px solid var(--acc);padding:9px 18px;border-radius:8px;display:none;z-index:99;font-size:13px}
+.needs{padding:8px 12px;font-size:12px;color:var(--dim);border-top:1px solid var(--line)}
+.held{padding:6px 12px;font-size:11.5px;color:var(--dim2);border-top:1px solid var(--line);
+  flex:0 0 auto}
+.held:empty{display:none}
+.needs b{color:var(--hot)}
+</style></head><body>
+
+<header>
+  <span class="lg" id="lg">ff-manager</span>
+  <span class="pill" id="pick">—</span>
+  <span id="clock" class="wait">—</span>
+  <span class="runs" id="runs"></span>
+  <span class="pill live-off" id="livest">○ manual entry</span>
+  <span id="ahead"></span>
+  <span class="sp">
+    <span class="pill" id="proj">—</span>
+    <button id="sync">Sync ESPN <kbd>S</kbd></button>
+    <button id="undo">Undo <kbd>U</kbd></button>
+    <button id="slotbtn">Set slot</button>
+  </span>
+</header>
+
+<main>
+  <div class="col">
+    <div class="card recs" style="flex:1">
+      <h2>Recommended &nbsp;<span style="color:var(--dim2);text-transform:none;letter-spacing:0">
+        press <kbd>1</kbd>–<kbd>9</kbd> to draft to my team</span></h2>
+      <div class="scroll" id="recs"></div>
+      <div class="held" id="held"></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card">
+      <h2>My roster <span id="lt" style="margin-left:auto;color:var(--go)"></span></h2>
+      <div class="scroll" id="roster"></div>
+      <div class="needs" id="needs"></div>
+    </div>
+    <div class="card" style="flex:1">
+      <h2>Board</h2>
+      <div class="scroll" id="teams" style="font-size:11.5px"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div id="entry">
+    <div id="results"></div>
+    <input id="q" placeholder="Type a player name and press Enter to record the pick…" autocomplete="off" autofocus>
+    <div class="hint">Every pick (mine or theirs) goes here — the app knows whose turn it is.
+      <kbd>↑</kbd><kbd>↓</kbd> choose · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd> clear</div>
+  </div>
+  <div id="recent"></div>
+</footer>
+<div id="toast"></div>
+
+<script src="/app.js"></script>
+</body></html>
