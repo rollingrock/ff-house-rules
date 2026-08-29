@@ -11,7 +11,21 @@ import { loadConfig, loadNewsOverrides, boardPath, rawPath, dataDir, ensureDirs 
 const root = path.resolve(import.meta.dirname, '..');
 const cfg = loadConfig((process.argv[2] || '').replace(/\.json$/, '') || process.env.LEAGUE);
 ensureDirs();
-const raw = JSON.parse(fs.readFileSync(rawPath(`espn-players-${cfg.season}.json`), 'utf8'));
+const rawFile = rawPath(`espn-players-${cfg.season}.json`);
+if (!fs.existsSync(rawFile)) {
+  console.error(`
+No ESPN player data for ${cfg.season}.
+
+` +
+    `Download it first:
+  node scripts/fetch-espn.js
+
+` +
+    `Expected at: ${rawFile}
+`);
+  process.exit(1);
+}
+const raw = JSON.parse(fs.readFileSync(rawFile, 'utf8'));
 const SEASON = cfg.season;
 
 // News overlay: ESPN projects 17 games for EVERY player, so it carries no injury discount
