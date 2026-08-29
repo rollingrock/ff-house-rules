@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# Credentials. Never commit these.
+# espn_s2 is a full session token for your ESPN account - treat it as a password.
+# ---------------------------------------------------------------------------
+config/espn-cookies.json
+local/espn-auth.json
+local/
+.env
+*.pem
+
+# ---------------------------------------------------------------------------
+# League configs are PRIVATE BY DEFAULT.
+#
+# A generated config contains your ESPN league id, your team name, and an
+# _espnTeams list naming every manager in your league. That is other people's
+# data, so nothing here is committed unless you deliberately un-ignore it.
+# Only the *.example.json files ship.
+# ---------------------------------------------------------------------------
+config/*.json
+!config/*.example.json
+
+# ---------------------------------------------------------------------------
+# Everything under data/ is either regenerable or private:
+#   raw/     ~24MB ESPN player dumps      (regenerate: scripts/fetch-espn.js)
+#   cache/   scored boards                (regenerate: scripts/build-board.js)
+#   drafts/  your live draft state
+#   live/    the websocket sidecar's scratch file
+#   history/ past drafts - contains real ESPN account ids for every league member
+#   adp/     third-party consensus ADP exports
+# ---------------------------------------------------------------------------
+data/
+
+# ---------------------------------------------------------------------------
+# Scratch
+# ---------------------------------------------------------------------------
+node_modules/
+__pycache__/
+*.pyc
+*.bak.json
+*.log
+.DS_Store
+Thumbs.db
