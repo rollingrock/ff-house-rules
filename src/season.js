@@ -149,6 +149,39 @@ export function waiverTargets({ roster, available, cfg, fromWeek, toWeek = 18, l
   return { targets: scored.slice(0, limit), drops: droppable.slice(0, 8), baseline: Math.round(baseline) };
 }
 
+/**
+ * The actual in-season transaction: add somebody AND drop somebody, evaluated as one move.
+ *
+ * waiverTargets scores an add as though the roster could just grow, and a drop as though
+ * nothing replaced it. Those two numbers do not compose - and in a zero-bench league they are
+ * meaningless on their own, because every add forces a drop. This searches (add, drop) pairs
+ * and returns the net change to the starting lineup over the window, which is the only figure
+ * that answers "should I do this".
+ *
+ * Cost is O(candidates x roster x weeks x optimizeLineup), so pass a shortlist of candidates.
+ */
+export function bestSwaps({ roster, candidates, cfg, fromWeek, toWeek = 18, limit = 10, protect }) {
+  const weeks = [];
+  for (let w = fromWeek; w <= toWeek; w++) weeks.push(w);
+  const total = r => weeks.reduce((a, w) => a + optimizeLineup(r, w, cfg).total, 0);
+  const baseline = total(roster);
+  const keep = protect || new Set();
+
+  const out = [];
+  for (const add of candidates) {
+    let best = null;
+    for (const drop of roster) {
+      if (keep.has(drop.id)) continue;
+      const after = total(roster.filter(p => p.id !== drop.id).concat(add));
+      const net = after - baseline;
+      if (!best || net > best.net) best = { drop, net };
+    }
+    if (best) out.push({ add, drop: best.drop, net: Math.round(best.net * 10) / 10 });
+  }
+  out.sort((a, b) => b.net - a.net);
+  return { swaps: out.slice(0, limit), baseline: Math.round(baseline) };
+}
+
 /** Bye-week collisions across the roster - the thing that quietly loses weeks. */
 export function byeReport(roster, cfg, weeks = 18) {
   const out = [];

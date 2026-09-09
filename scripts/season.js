@@ -2,7 +2,7 @@
 //   node scripts/season.js sync                 refresh league ground truth from ESPN
 //   node scripts/season.js lineup [week]        what to start, and what to change
 //   node scripts/season.js roster               my roster as ESPN has it right now
-//   node scripts/season.js waivers [week]       free agents worth adding
+//   node scripts/season.js waivers [week] [to]  free agents worth adding over a window
 //   node scripts/season.js byes
 //
 // Roster resolution, in order:
@@ -10,7 +10,8 @@
 //   2. the draft file          - correct only until the first transaction, and says so loudly
 import fs from 'node:fs'; import path from 'node:path';
 import {
-  optimizeLineup, waiverTargets, byeReport, lineupDelta, weekPoints, isBye, isUnavailable, isZeroProjected,
+  optimizeLineup, waiverTargets, bestSwaps, byeReport, lineupDelta, weekPoints, isBye, isUnavailable,
+  isZeroProjected,
 } from '../src/season.js';
 import { loadConfig, boardPath, draftPath } from '../src/league.js';
 import { haveCookies } from '../src/espn-live.js';
@@ -25,7 +26,7 @@ const LEAGUE = cfg.id;
 const board = JSON.parse(fs.readFileSync(boardPath(LEAGUE), 'utf8'));
 const byId = new Map(board.players.map(p => [p.id, p]));
 
-const [cmd, arg] = process.argv.slice(2);
+const [cmd, arg, arg2] = process.argv.slice(2);
 const STALE_MS = 6 * 60 * 60 * 1000;      // a roster six hours old has probably seen a waiver run
 
 // ---------------------------------------------------------------------------------- sync
@@ -173,20 +174,38 @@ if (cmd === 'lineup' || !cmd) {
     poolNote = `${avail.length} by ESPN GLOBAL ownership — not this league's real pool. Run sync.`;
   }
   // Cost is O(pool x weeks x optimizeLineup), so the pool is capped - but never silently.
+  // Rank by VORP, not raw points: raw points is not comparable across positions and fills the
+  // cap with quarterbacks, cutting off exactly the running back depth a waiver search wants.
   const CAP = 250;
-  const ranked = [...avail].sort((a, b) => (b.pts || 0) - (a.pts || 0));
+  const ranked = [...avail].sort((a, b) => (b.vorp ?? -1e9) - (a.vorp ?? -1e9));
+  // A rest-of-season view hides a short-term hole: an injured starter due back in week 7 makes
+  // weeks 1-6 the actual need, and a player who only helps then scores near zero over 18 weeks.
+  const toWeek = Number(arg2) || 18;
   const { targets, drops, baseline } =
-    waiverTargets({ roster: myRoster, available: ranked.slice(0, CAP), cfg, fromWeek: week });
+    waiverTargets({ roster: myRoster, available: ranked.slice(0, CAP), cfg, fromWeek: week, toWeek });
 
-  header(`WAIVER TARGETS from week ${week}`);
+  header(`WAIVER TARGETS — weeks ${week}-${toWeek}`);
   console.log(`  pool: ${poolNote}`);
-  if (ranked.length > CAP) console.log(`  evaluated the top ${CAP} by projection; ${ranked.length - CAP} lower-projected not scored`);
-  console.log(`  rest-of-season starting-lineup baseline: ${baseline}\n`);
+  if (ranked.length > CAP) console.log(`  evaluated the top ${CAP} by VORP; ${ranked.length - CAP} below that not scored`);
+  console.log(`  starting-lineup baseline over this window: ${baseline}\n`);
   const hits = targets.filter(t => t.restOfSeasonGain > 0);
+  if (hits.length) console.log('  ADD CANDIDATES  (gain assuming a free roster spot — see swaps below for the real number)');
   if (!hits.length) console.log('   nothing available improves your starting lineup.\n');
   hits.slice(0, 15).forEach((t, i) =>
     console.log(`   ${String(i + 1).padStart(2)}. ${(t.name || '').padEnd(24)} ${(t.pos || '').padEnd(4)} +${String(t.restOfSeasonGain).padStart(5)}  (${Math.round(t.owned ?? 0)}% rostered globally)`));
-  console.log('\n  CHEAPEST DROPS:');
+  // Once the roster is full every add forces a drop - in a zero-bench league, always. Only the
+  // paired figure answers "should I do this", so the swap is the headline and the raw add is not.
+  const shortlist = hits.slice(0, 12);
+  if (shortlist.length) {
+    const { swaps } = bestSwaps({ roster: myRoster, candidates: shortlist, cfg, fromWeek: week, toWeek });
+    const real = swaps.filter(s => s.net > 0);
+    console.log(`\n  BEST SWAPS  (add + drop together, net over weeks ${week}-${toWeek})`);
+    if (!real.length) console.log('     none — no add/drop pair improves the lineup.');
+    real.forEach((s, i) => console.log(
+      `   ${String(i + 1).padStart(2)}. +${(s.add.name || '').padEnd(22)} ${(s.add.pos || '').padEnd(4)}`
+      + `  for  -${(s.drop.name || '').padEnd(22)} ${(s.drop.pos || '').padEnd(4)}  net +${s.net}`));
+  }
+  console.log('\n  CHEAPEST DROPS  (cost if dropped with nothing added back):');
   drops.slice(0, 5).forEach(d => console.log(`      ${(d.name || '').padEnd(24)} ${(d.pos || '').padEnd(4)} costs ${d.costToDrop}`));
   console.log('');
 
