@@ -160,12 +160,17 @@ export function waiverTargets({ roster, available, cfg, fromWeek, toWeek = 18, l
  *
  * Cost is O(candidates x roster x weeks x optimizeLineup), so pass a shortlist of candidates.
  */
-export function bestSwaps({ roster, candidates, cfg, fromWeek, toWeek = 18, limit = 10, protect }) {
+export function bestSwaps({ roster, candidates, cfg, fromWeek, toWeek = 18, limit = 10, protect, ...opts }) {
   const weeks = [];
   for (let w = fromWeek; w <= toWeek; w++) weeks.push(w);
   const total = r => weeks.reduce((a, w) => a + optimizeLineup(r, w, cfg).total, 0);
   const baseline = total(roster);
   const keep = protect || new Set();
+
+  // Dead slots before and after: a swap can gain points on net while opening a hole somewhere
+  // else - drop the only backup tight end and you have simply moved the problem to his bye.
+  const deadCount = r => weakWeeks(r, cfg, toWeek, opts).reduce((a, x) => a + x.dead.length, 0);
+  const deadBefore = deadCount(roster);
 
   const out = [];
   for (const add of candidates) {
@@ -176,10 +181,16 @@ export function bestSwaps({ roster, candidates, cfg, fromWeek, toWeek = 18, limi
       const net = after - baseline;
       if (!best || net > best.net) best = { drop, net };
     }
-    if (best) out.push({ add, drop: best.drop, net: Math.round(best.net * 10) / 10 });
+    if (!best) continue;
+    const roster2 = roster.filter(p => p.id !== best.drop.id).concat(add);
+    out.push({
+      add, drop: best.drop,
+      net: Math.round(best.net * 10) / 10,
+      deadDelta: deadCount(roster2) - deadBefore,
+    });
   }
   out.sort((a, b) => b.net - a.net);
-  return { swaps: out.slice(0, limit), baseline: Math.round(baseline) };
+  return { swaps: out.slice(0, limit), baseline: Math.round(baseline), deadBefore };
 }
 
 /**
