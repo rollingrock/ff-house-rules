@@ -1,6 +1,6 @@
 // In-season engine: weekly lineup optimization + waiver/FA recommendations.
 // Reuses the exact same scoring and replacement-level machinery as the draft board.
-import { scoreStats, scoreDstBrackets } from './score.js';
+import { scoreStats, scoreDstBrackets, flexSlots, flexSlotNames } from './score.js';
 import { STAT } from './statmap.js';
 
 /** Score one player's projection for a single week under league scoring. */
@@ -46,16 +46,19 @@ export function optimizeLineup(roster, week, cfg) {
       else lineup.push({ slot, empty: true });
     }
   };
+  const FLEXNAMES = flexSlotNames(cfg);
   for (const [pos, n] of Object.entries(st)) {
-    if (pos === 'FLEX' || pos === 'DP') continue;
+    if (FLEXNAMES.has(pos) || pos === 'DP') continue;
     fill(pos, pos, n);
   }
   // FLEX: best remaining flex-eligible
-  for (let i = 0; i < (st.FLEX || 0); i++) {
-    const cand = cfg.roster.flexEligible.flatMap(x => byPos[x] || [])
-      .filter(x => !used.has(x.id)).sort((a, b) => b.wpts - a.wpts)[0];
-    if (cand) { used.add(cand.id); lineup.push({ slot: 'FLEX', ...cand }); }
-    else lineup.push({ slot: 'FLEX', empty: true });
+  for (const fs of flexSlots(cfg)) {
+    for (let i = 0; i < fs.n; i++) {
+      const cand = fs.eligible.flatMap(x => byPos[x] || [])
+        .filter(x => !used.has(x.id)).sort((a, b) => b.wpts - a.wpts)[0];
+      if (cand) { used.add(cand.id); lineup.push({ slot: fs.name, ...cand }); }
+      else lineup.push({ slot: fs.name, empty: true });
+    }
   }
   // DP
   for (let i = 0; i < (st.DP || 0); i++) {
