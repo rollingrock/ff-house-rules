@@ -10,7 +10,7 @@
 //   2. the draft file          - correct only until the first transaction, and says so loudly
 import fs from 'node:fs'; import path from 'node:path';
 import {
-  optimizeLineup, waiverTargets, bestSwaps, byeReport, lineupDelta, weekPoints, isBye, isUnavailable,
+  optimizeLineup, waiverTargets, bestSwaps, byeReport, weakWeeks, lineupDelta, weekPoints, isBye, isUnavailable,
   isZeroProjected,
 } from '../src/season.js';
 import { loadConfig, boardPath, draftPath } from '../src/league.js';
@@ -212,10 +212,31 @@ if (cmd === 'lineup' || !cmd) {
 // ---------------------------------------------------------------------------------- byes
 
 } else if (cmd === 'byes') {
-  header('BYE-WEEK COLLISIONS');
+  header('WEEKS THAT SCORE ZERO IN A STARTING SLOT');
+  const weak = weakWeeks(myRoster, cfg, 18, { unavailable });
+  if (!weak.length) console.log('   none — every week fields a full, non-zero lineup.');
+  let lost = 0;
+  for (const w of weak) {
+    const what = w.dead.map(d => d.name ? `${d.slot}: ${d.name}` : `${d.slot}: — EMPTY —`).join(', ');
+    console.log(`   week ${String(w.week).padStart(2)}  total ${String(w.total).padStart(5)}   ${what}`);
+    lost += w.dead.length;
+  }
+  if (weak.length) {
+    console.log(`\n   ${lost} dead starting slot${lost === 1 ? '' : 's'} across ${weak.length} week${weak.length === 1 ? '' : 's'}.`);
+    if (!cfg.roster.benchSlots) {
+      console.log('   Zero bench: every bye lands here by construction. Only streaming fixes it —');
+      console.log('   drop the player on bye, add the best free agent at that slot, each week.');
+    } else {
+      console.log('   Each of these is a slot you must fill and currently cannot. A bench player who');
+      console.log('   never starts can usually be swapped for cover at no cost — check `waivers`.');
+    }
+  }
+  // The raw collision count, kept: it is how you spot trouble building before it bites.
   const rep = byeReport(myRoster, cfg);
-  if (!rep.length) console.log('   none — no week has two players out.\n');
-  for (const b of rep) console.log(`   week ${String(b.week).padStart(2)}: ${b.count} out — ${b.players.join(', ')}`);
+  if (rep.length) {
+    console.log('\n  BYE COLLISIONS (2+ players out, whether or not it costs you):');
+    for (const b of rep) console.log(`   week ${String(b.week).padStart(2)}: ${b.count} out — ${b.players.join(', ')}`);
+  }
   console.log('');
 
 } else {
