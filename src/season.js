@@ -14,13 +14,28 @@ export function weekPoints(player, week, cfg) {
 }
 
 /**
- * Is this player on bye this week? ESPN emits the week with a value of 0 rather than
- * omitting it, so an absent week and a 0 week both mean "not playing".
+ * Is this player on bye this week?
+ *
+ * A zero week does NOT mean bye. ESPN empties the weekly stat line for anyone it expects to
+ * miss, so "no projection" covers two very different situations: the team's scheduled bye,
+ * which is structural and known in August, and an injury ESPN has priced in, which is news.
+ * Reporting the second as a bye hides exactly the thing worth acting on. Prefer the board's
+ * `bye` field, and keep the old zero heuristic only for players that lack one.
  */
 export const isBye = (player, week) => {
+  if (player.bye != null) return player.bye === week;
   if (player.wk) { const v = player.wk[week]; return v == null || v === 0; }
   return !player.weekly?.[week];
 };
+
+/**
+ * Projected zero in a week that is NOT his bye — ESPN has zeroed the line because it does
+ * not expect him to play. Worth surfacing loudly: it is the earliest signal the feed carries.
+ */
+export function isZeroProjected(player, week) {
+  const v = player.wk ? player.wk[week] : player.weekly?.[week];
+  return (v == null || v === 0) && !isBye(player, week);
+}
 
 /**
  * ESPN designations meaning the player will not take a snap. Their weekly PROJECTION is often
