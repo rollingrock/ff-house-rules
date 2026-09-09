@@ -182,6 +182,28 @@ export function bestSwaps({ roster, candidates, cfg, fromWeek, toWeek = 18, limi
   return { swaps: out.slice(0, limit), baseline: Math.round(baseline) };
 }
 
+/**
+ * Weeks where a STARTING slot scores nothing - the actionable form of a bye report.
+ *
+ * Counting how many players are out is the wrong question: two backups on bye cost nothing,
+ * while one kicker on bye with no second kicker is a guaranteed zero in a slot you must fill.
+ * What matters is whether a slot ends up empty or occupied by somebody projected at zero.
+ *
+ * In a zero-bench league every single bye lands here by construction, which is the correct
+ * answer: that format is not solved by roster shape, only by streaming.
+ */
+export function weakWeeks(roster, cfg, weeks = 18, opts = {}) {
+  const out = [];
+  for (let w = 1; w <= weeks; w++) {
+    const o = optimizeLineup(roster, w, cfg, opts);
+    const dead = o.lineup
+      .filter(l => l.empty || !l.wpts)
+      .map(l => ({ slot: l.slot, name: l.empty ? null : l.name, pos: l.empty ? null : l.pos }));
+    if (dead.length) out.push({ week: w, total: o.total, dead });
+  }
+  return out;
+}
+
 /** Bye-week collisions across the roster - the thing that quietly loses weeks. */
 export function byeReport(roster, cfg, weeks = 18) {
   const out = [];
