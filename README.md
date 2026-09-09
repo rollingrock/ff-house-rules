@@ -134,10 +134,32 @@ Until then: **type the picks.** It takes about four keystrokes every thirty seco
 ## In-season
 
 ```bash
-node scripts/season.js lineup 5     # optimal lineup for week 5
-node scripts/season.js waivers 5    # waiver targets
-node scripts/season.js byes         # weeks you cannot fill a lineup
+node scripts/season.js sync             # pull the league as it is right now
+node scripts/season.js lineup [week]    # what to CHANGE, not just the optimum
+node scripts/season.js roster           # your roster as ESPN has it
+node scripts/season.js waivers [w] [to] # free agents, scored as add+drop swaps
+node scripts/season.js byes             # weeks a starting slot scores zero
+node scripts/overrides.js               # audit the news overlay against ESPN
 ```
+
+**Run `sync` first, and again after any transaction.** Without it the roster comes from the
+draft file — correct right up until the first waiver claim, and wrong forever after. Every
+command prints which source it used and how old it is.
+
+`lineup` diffs the optimum against the lineup you actually have set in ESPN, so the output is
+"start X, bench Y, +N points" rather than a table to compare by eye. Changes worth less than a
+point are marked optional. A player ESPN has **ruled out** is always flagged: his weekly
+projection often stays non-zero, so nothing else stops you starting him.
+
+`byes` reports weeks where a *starting slot* scores zero, which is not the same as counting who
+is out. Two backups on bye cost nothing; one kicker on bye with no second kicker is a guaranteed
+zero in a slot you are required to fill. In a zero-bench league every bye lands here by
+construction — that format is won by streaming, and the report says so.
+
+`waivers` scores **swaps**, not adds. Once the roster is full every add forces a drop, and the
+two numbers do not compose: a bare "+38.9" silently assumes a free roster spot. Each swap also
+says whether it fills or opens a dead starting slot, because adding bye cover by dropping your
+only backup tight end just moves the hole.
 
 Injuries and role changes go in `config/news-overrides.json`, a multiplier per player, applied at
 board-build time:
