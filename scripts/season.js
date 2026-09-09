@@ -203,7 +203,9 @@ if (cmd === 'lineup' || !cmd) {
     if (!real.length) console.log('     none — no add/drop pair improves the lineup.');
     real.forEach((s, i) => console.log(
       `   ${String(i + 1).padStart(2)}. +${(s.add.name || '').padEnd(22)} ${(s.add.pos || '').padEnd(4)}`
-      + `  for  -${(s.drop.name || '').padEnd(22)} ${(s.drop.pos || '').padEnd(4)}  net +${s.net}`));
+      + `  for  -${(s.drop.name || '').padEnd(22)} ${(s.drop.pos || '').padEnd(4)}  net +${String(s.net).padStart(5)}`
+      + (s.deadDelta > 0 ? `   ⚠ opens ${s.deadDelta} new dead slot${s.deadDelta > 1 ? 's' : ''}`
+         : s.deadDelta < 0 ? `   fills ${-s.deadDelta} dead slot${s.deadDelta < -1 ? 's' : ''}` : '')));
   }
   console.log('\n  CHEAPEST DROPS  (cost if dropped with nothing added back):');
   drops.slice(0, 5).forEach(d => console.log(`      ${(d.name || '').padEnd(24)} ${(d.pos || '').padEnd(4)} costs ${d.costToDrop}`));
