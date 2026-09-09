@@ -68,6 +68,35 @@ export function scoreDstBrackets() { return 0; }
  * sweep. Effect on top-of-position VORP: QB 93 -> 169, RB 179 -> 238, WR 142 -> 180, TE 79 -> 121,
  * K and D/ST unchanged. That is the bias being removed.
  */
+
+/**
+ * Flex slots, NARROWEST FIRST.
+ *
+ * Some leagues run more than one flex type - e.g. 2x RB/WR/TE plus 2x WR/TE. Declare them as:
+ *   roster.flexSlots = [{ name:'FLEX', n:2, eligible:['RB','WR','TE'] },
+ *                       { name:'WRTE', n:2, eligible:['WR','TE'] }]
+ * Falls back to the single roster.starters.FLEX + roster.flexEligible form.
+ *
+ * Narrowest first is what makes the greedy fill correct: put a receiver in the open FLEX while a
+ * WR/TE-only slot is still empty and you can strand it with only running backs left to fill it.
+ */
+export function flexSlots(cfg) {
+  const r = cfg.roster || {};
+  if (Array.isArray(r.flexSlots) && r.flexSlots.length) {
+    return r.flexSlots
+      .filter(s => (s.n || 0) > 0)
+      .map(s => ({ name: s.name || 'FLEX', n: s.n, eligible: s.eligible || r.flexEligible || [] }))
+      .sort((a, b) => a.eligible.length - b.eligible.length);
+  }
+  const n = (r.starters || {}).FLEX || 0;
+  return n ? [{ name: 'FLEX', n, eligible: r.flexEligible || [] }] : [];
+}
+
+/** Every slot name that is a flex of some kind - used to skip them in dedicated-slot loops. */
+export function flexSlotNames(cfg) {
+  return new Set(flexSlots(cfg).map(s => s.name).concat('FLEX'));
+}
+
 export function replacementLevels(players, cfg) {
   const T = cfg.teams, st = cfg.roster.starters, flexElig = cfg.roster.flexEligible;
   const byPos = {};
@@ -98,12 +127,21 @@ export function replacementLevels(players, cfg) {
     dedicated[pos] = n * T;
   }
   // 2. the flex pool: best remaining among flex-eligible positions
-  const pool = [];
-  for (const pos of flexElig) pool.push(...(byPos[pos] || []).slice(dedicated[pos] || 0));
-  pool.sort((a, b) => b.pts - a.pts);
-  const flexN = (st.FLEX || 0) * T;
   const absorbed = {};
-  for (const p of pool.slice(0, flexN)) absorbed[p.pos] = (absorbed[p.pos] || 0) + 1;
+  const takenFlex = new Set();
+  for (const fs of flexSlots(cfg)) {
+    const pool = [];
+    for (const pos of fs.eligible) pool.push(...(byPos[pos] || []).slice(dedicated[pos] || 0));
+    pool.sort((a, b) => b.pts - a.pts);
+    let need = fs.n * T;
+    for (const p of pool) {
+      if (need <= 0) break;
+      if (takenFlex.has(p.id)) continue;
+      takenFlex.add(p.id);
+      absorbed[p.pos] = (absorbed[p.pos] || 0) + 1;
+      need--;
+    }
+  }
 
   // 3. DP draws from every IDP position at once
   const dpPool = [];

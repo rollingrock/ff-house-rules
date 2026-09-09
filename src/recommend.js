@@ -1,5 +1,5 @@
 // The draft brain: marginal lineup value + ADP survival -> VONA-style pick recommendation.
-import { survivalCurve, survivalCurveOpponentAware, isCensoredAdp } from './score.js';
+import { survivalCurve, survivalCurveOpponentAware, isCensoredAdp, flexSlots, flexSlotNames } from './score.js';
 
 /** Optimal starting-lineup points. Unfilled slots fall back to replacement level. */
 export function bestLineupPoints(roster, cfg, repl) {
@@ -18,12 +18,17 @@ export function bestLineupPoints(roster, cfg, repl) {
     total += (n - got.length) * (repl[pos] ?? 0);          // empty slot = replacement player
   }
   // FLEX
-  const flexPool = flexElig.flatMap(p => pool[p] || []).sort((a, b) => b.pts - a.pts);
-  const fN = st.FLEX || 0;
-  const flexGot = flexPool.slice(0, fN);
-  used.push(...flexGot);
-  total += flexGot.reduce((a, b) => a + b.pts, 0);
-  total += (fN - flexGot.length) * Math.max(repl.RB ?? 0, repl.WR ?? 0);
+  const flexTaken = new Set(used.map(p => p.id));
+  for (const fs of flexSlots(cfg)) {
+    const fp = fs.eligible.flatMap(p => pool[p] || [])
+      .filter(p => !flexTaken.has(p.id)).sort((a, b) => b.pts - a.pts);
+    const got = fp.slice(0, fs.n);
+    for (const g of got) flexTaken.add(g.id);
+    used.push(...got);
+    total += got.reduce((a, b) => a + b.pts, 0);
+    const fallback = Math.max(...fs.eligible.map(p => repl[p] ?? 0), 0);
+    total += (fs.n - got.length) * fallback;
+  }
   // DP
   const dpPool = dpElig.flatMap(p => pool[p] || []).sort((a, b) => b.pts - a.pts);
   const dN = st.DP || 0;
@@ -245,20 +250,23 @@ export function unfilledStarterSlots(roster, cfg) {
     if (p) { used.add(p.id); return true; }
     return false;
   };
+  const FLEXNAMES = flexSlotNames(cfg);
   for (const [slot, n] of Object.entries(st)) {
-    if (slot === 'FLEX' || slot === 'DP') continue;
+    if (FLEXNAMES.has(slot) || slot === 'DP') continue;
     for (let i = 0; i < n; i++) if (!takeOne(x => x.pos === slot)) out.push(slot);
   }
-  for (let i = 0; i < (st.FLEX || 0); i++)
-    if (!takeOne(x => cfg.roster.flexEligible.includes(x.pos))) out.push('FLEX');
+  for (const fs of flexSlots(cfg))
+    for (let i = 0; i < fs.n; i++)
+      if (!takeOne(x => fs.eligible.includes(x.pos))) out.push(fs.name);
   for (let i = 0; i < (st.DP || 0); i++)
     if (!takeOne(x => cfg.roster.dpEligible.includes(x.pos))) out.push('DP');
   return out;
 }
 
 function fillsAnySlot(player, needed, cfg) {
+  const fsByName = new Map(flexSlots(cfg).map(f => [f.name, f]));
   return needed.some(slot =>
-    slot === 'FLEX' ? cfg.roster.flexEligible.includes(player.pos)
+    fsByName.has(slot) ? fsByName.get(slot).eligible.includes(player.pos)
     : slot === 'DP' ? cfg.roster.dpEligible.includes(player.pos)
     : player.pos === slot);
 }
