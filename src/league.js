@@ -96,6 +96,8 @@ export const draftPath = id => path.join(dataDir(), 'drafts', `${id}.json`);
 export const rawPath = f => path.join(dataDir(), 'raw', f);
 export const historyPath = f => path.join(dataDir(), 'history', f);
 export const livePath = () => path.join(dataDir(), 'live', 'draft_state.json');
+/** In-season ground truth: who owns whom, right now. Written by `season.js sync`. */
+export const statePath = id => path.join(dataDir(), 'live', `state-${id}.json`);
 
 /** Create the writable directories the tools assume exist. */
 export function ensureDirs() {

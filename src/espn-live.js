@@ -18,7 +18,7 @@ export const haveCookies = root => !!readCookies(root);
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons';
 
-async function espnGet(cfg, root, views) {
+export async function espnGet(cfg, root, views) {
   const c = readCookies(root);
   if (!c) return { error: 'no espn cookies — see SETUP.md' };
   const swid = c.SWID.startsWith('{') ? c.SWID : `{${c.SWID}}`;

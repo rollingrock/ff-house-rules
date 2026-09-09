@@ -23,18 +23,31 @@ export const isBye = (player, week) => {
 };
 
 /**
+ * ESPN designations meaning the player will not take a snap. Their weekly PROJECTION is often
+ * still non-zero - ESPN projects the role, not the availability - so an optimiser that trusts
+ * projections alone will cheerfully tell you to start someone who has been ruled out.
+ * DOUBTFUL is deliberately absent: it is surfaced as a warning and left to the manager.
+ */
+export const UNAVAILABLE_STATUS = new Set(['OUT', 'INJURY_RESERVE', 'SUSPENSION']);
+export const isUnavailable = p => UNAVAILABLE_STATUS.has(p?.injuryStatus);
+
+/**
  * Optimal starting lineup for a week. Exhaustive over flex/DP assignment, which is
  * tiny here (one FLEX, one DP), so this is genuinely optimal rather than greedy.
+ *
+ * Players whose id is in `opts.unavailable` are never assigned a slot, but they still appear
+ * on the bench: a ruled-out starter should stay visible, not quietly disappear.
  */
-export function optimizeLineup(roster, week, cfg) {
+export function optimizeLineup(roster, week, cfg, opts = {}) {
   const st = cfg.roster.starters;
+  const blocked = opts.unavailable || new Set();
   const pool = roster
     .map(p => ({ ...p, wpts: weekPoints(p, week, cfg) }))
     .filter(p => p.wpts != null);
   const bye = roster.filter(p => isBye(p, week));
 
   const byPos = {};
-  for (const p of pool) (byPos[p.pos] ||= []).push(p);
+  for (const p of pool) { if (!blocked.has(p.id)) (byPos[p.pos] ||= []).push(p); }
   for (const k in byPos) byPos[k].sort((a, b) => b.wpts - a.wpts);
 
   const used = new Set();
@@ -74,18 +87,24 @@ export function optimizeLineup(roster, week, cfg) {
 
 /**
  * What the CURRENT lineup costs vs. optimal. This is the actionable number:
- * lineup protection is OFF in this league, so nobody swaps injured starters for you.
+ * lineup protection is OFF in these leagues, so nobody swaps injured starters for you.
+ *
+ * A ruled-out player already in the lineup still scores zero, so his projection is not
+ * counted toward the current total - otherwise the tool would understate what a swap is worth.
  */
-export function lineupDelta(roster, currentStarterIds, week, cfg) {
-  const opt = optimizeLineup(roster, week, cfg);
-  const cur = roster.filter(p => currentStarterIds.has(p.id))
-    .reduce((a, p) => a + (weekPoints(p, week, cfg) || 0), 0);
+export function lineupDelta(roster, currentStarterIds, week, cfg, opts = {}) {
+  const blocked = opts.unavailable || new Set();
+  const opt = optimizeLineup(roster, week, cfg, opts);
+  const wp = p => (blocked.has(p.id) ? 0 : (weekPoints(p, week, cfg) || 0));
+  const cur = roster.filter(p => currentStarterIds.has(p.id)).reduce((a, p) => a + wp(p), 0);
   const moves = [];
   const optIds = new Set(opt.lineup.filter(l => !l.empty).map(l => l.id));
   for (const p of roster) {
     if (currentStarterIds.has(p.id) && !optIds.has(p.id)) moves.push({ action: 'BENCH', ...p, wpts: weekPoints(p, week, cfg) });
     if (!currentStarterIds.has(p.id) && optIds.has(p.id)) moves.push({ action: 'START', ...p, wpts: weekPoints(p, week, cfg) });
   }
+  // Biggest swing first: with several moves the first one is the one that matters.
+  moves.sort((a, b) => (b.wpts || 0) - (a.wpts || 0));
   return { optimal: opt, currentPoints: Math.round(cur * 10) / 10, gain: Math.round((opt.total - cur) * 10) / 10, moves };
 }
 
