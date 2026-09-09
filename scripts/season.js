@@ -10,7 +10,7 @@
 //   2. the draft file          - correct only until the first transaction, and says so loudly
 import fs from 'node:fs'; import path from 'node:path';
 import {
-  optimizeLineup, waiverTargets, byeReport, lineupDelta, weekPoints, isBye, isUnavailable,
+  optimizeLineup, waiverTargets, byeReport, lineupDelta, weekPoints, isBye, isUnavailable, isZeroProjected,
 } from '../src/season.js';
 import { loadConfig, boardPath, draftPath } from '../src/league.js';
 import { haveCookies } from '../src/espn-live.js';
@@ -96,6 +96,9 @@ function header(title) {
 const wp = p => p.wpts ?? weekPoints(p, week, cfg) ?? 0;
 const line = p => `${(p.name || '').padEnd(24)} ${(p.pos || '').padEnd(4)} ${String(wp(p)).padStart(5)}`;
 const flag = p => (p.injuryStatus && !['ACTIVE', 'NORMAL'].includes(p.injuryStatus)) ? `  (${p.injuryStatus})` : '';
+// Why is this player worth nothing this week? A bye is structural; a zeroed line is news.
+const zeroNote = p => isBye(p, week) ? '  (BYE)'
+  : isZeroProjected(p, week) ? '  ⚠ NO PROJECTION — ESPN expects him to miss' : '';
 
 // Ruled out by ESPN. Their projections are often still non-zero, so this has to be explicit.
 const unavailable = new Set(myRoster.filter(isUnavailable).map(p => p.id));
@@ -121,7 +124,7 @@ if (cmd === 'lineup' || !cmd) {
     }
     if (d.moves.length) {
       for (const m of d.moves.filter(m => m.action === 'START')) console.log(`   START   ${line(m)}${flag(m)}`);
-      for (const m of d.moves.filter(m => m.action === 'BENCH')) console.log(`   BENCH   ${line(m)}${isBye(m, week) ? '  (BYE)' : ''}${flag(m)}`);
+      for (const m of d.moves.filter(m => m.action === 'BENCH')) console.log(`   BENCH   ${line(m)}${zeroNote(m)}${flag(m)}`);
       console.log(`\n   currently set ${d.currentPoints}  ->  optimal ${opt.total}\n`);
     }
   } else {
@@ -132,13 +135,13 @@ if (cmd === 'lineup' || !cmd) {
   for (const l of opt.lineup) {
     if (l.empty) { console.log(`   ${String(l.slot).padEnd(5)}   — EMPTY —`); continue; }
     const mark = currentIds ? (currentIds.has(l.id) ? ' ' : '*') : ' ';
-    console.log(`   ${String(l.slot).padEnd(5)} ${mark} ${line(l)}${flag(l)}`);
+    console.log(`   ${String(l.slot).padEnd(5)} ${mark} ${line(l)}${zeroNote(l)}${flag(l)}`);
   }
   if (opt.bench.length) {
     console.log('\n  BENCH:');
     for (const b of opt.bench) {
       const mark = currentIds ? (currentIds.has(b.id) ? '*' : ' ') : ' ';
-      console.log(`         ${mark} ${line(b)}${isBye(b, week) ? '  (BYE)' : ''}${flag(b)}`);
+      console.log(`         ${mark} ${line(b)}${zeroNote(b)}${flag(b)}`);
     }
   }
   if (currentIds) console.log('\n  * = differs from your currently-set lineup');
