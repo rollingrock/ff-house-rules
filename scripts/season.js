@@ -5,6 +5,10 @@
 //   node scripts/season.js waivers [week] [to]  free agents worth adding over a window
 //   node scripts/season.js byes
 //
+//   --at <time>   judge game locks as of that moment instead of now, e.g. --at 2026-09-20T11:00
+//
+// For every league at once, printing only what needs doing: node scripts/weekly.js
+//
 // Roster resolution, in order:
 //   1. the synced ESPN state   - real: includes waiver adds and the currently-set lineup
 //   2. the draft file          - correct only until the first transaction, and says so loudly
@@ -14,10 +18,9 @@ import {
   isZeroProjected,
 } from '../src/season.js';
 import { loadConfig, boardPath, draftPath } from '../src/league.js';
-import { haveCookies } from '../src/espn-live.js';
 import {
-  fetchLeagueState, saveState, loadState, stateAgeMs, describeAge,
-  myTeam, resolveRoster, currentStarterIds, freeAgents,
+  syncLeague, loadState, stateAgeMs, describeAge, describeKickoff,
+  myTeam, resolveRoster, currentStarterIds, freeAgents, lockInfo,
 } from '../src/league-state.js';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -26,25 +29,18 @@ const LEAGUE = cfg.id;
 const board = JSON.parse(fs.readFileSync(boardPath(LEAGUE), 'utf8'));
 const byId = new Map(board.players.map(p => [p.id, p]));
 
-const [cmd, arg, arg2] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const atIdx = argv.indexOf('--at');
+const now = atIdx >= 0 ? Date.parse(argv.splice(atIdx, 2)[1]) : Date.now();
+if (!Number.isFinite(now)) { console.error('\n  --at wants a date and time, e.g. --at 2026-09-20T11:00\n'); process.exit(1); }
+const [cmd, arg, arg2] = argv;
 const STALE_MS = 6 * 60 * 60 * 1000;      // a roster six hours old has probably seen a waiver run
 
 // ---------------------------------------------------------------------------------- sync
 
 if (cmd === 'sync') {
-  if (!haveCookies(root)) {
-    console.error('\n  No ESPN cookies. Add config/espn-cookies.json with espn_s2 and SWID.\n');
-    process.exit(1);
-  }
-  const s = await fetchLeagueState(cfg, root);
-  if (s.error) { console.error(`\n  ${s.error}\n`); process.exit(1); }
-  if (!s.myEspnTeamId) {
-    console.error(`\n  Could not find your team. Config myTeamName is ${JSON.stringify(cfg.myTeamName)}; ESPN has:\n`
-      + s.teams.map(t => `    ${t.name}`).join('\n')
-      + '\n\n  Fix myTeamName in the config, or set myEspnTeamId.\n');
-    process.exit(1);
-  }
-  const file = saveState(LEAGUE, s);
+  const { state: s, file, error } = await syncLeague(cfg, root);
+  if (error) { console.error(`\n  ${error}\n`); process.exit(1); }
   const me = myTeam(s);
   const unowned = board.players.filter(p => !new Set(s.ownedIds).has(p.id)).length;
   console.log(`\n  SYNCED ${cfg.name} — ESPN week ${s.scoringPeriodId ?? '?'}`);
@@ -52,6 +48,7 @@ if (cmd === 'sync') {
   console.log(`  you: ${me.name} (${me.wins ?? 0}-${me.losses ?? 0}) — ${me.roster.length} players, ${me.roster.filter(p => p.starter).length} in start slots`);
   const hurt = me.roster.filter(p => p.injuryStatus && !['ACTIVE', 'NORMAL'].includes(p.injuryStatus));
   if (hurt.length) console.log(`  flagged: ${hurt.map(p => `${p.name} (${p.injuryStatus})`).join(', ')}`);
+  if (s.kickoffsError) console.log(`  ⚠ no kickoff times (${s.kickoffsError}) — lineup cannot tell which games have locked`);
   console.log(`  -> ${file}\n`);
   process.exit(0);
 }
@@ -59,13 +56,14 @@ if (cmd === 'sync') {
 // --------------------------------------------------------------------- roster resolution
 
 const state = loadState(LEAGUE);
-let myRoster, currentIds = null, missing = [], source, ageNote;
+let myRoster, currentIds = null, entries = null, missing = [], source, ageNote;
 
 if (state && myTeam(state)) {
   const me = myTeam(state);
   const r = resolveRoster(me.roster, byId);
   myRoster = r.players;
   missing = r.missing;
+  entries = me.roster;
   currentIds = currentStarterIds(me.roster);
   source = 'espn';
   const age = stateAgeMs(state);
@@ -86,17 +84,34 @@ if (!myRoster.length) {
 
 const week = Number(arg) || state?.scoringPeriodId || 1;
 
-function header(title) {
+// Locks exist only in the week ESPN is scoring, and only for a synced roster - a draft file has no slots.
+const { locked, kickoff } = entries ? lockInfo(state, entries, week, now) : { locked: new Set(), kickoff: new Map() };
+
+function header(title, notes = []) {
   console.log(`\n  ${title}`);
   console.log(`  ${cfg.name} · week ${week} · ${ageNote}`);
+  for (const n of notes) console.log(`  ${n}`);
   if (source === 'draft') console.log('  ⚠ roster is draft-night state, not live. Run `season.js sync`.');
   if (missing.length) console.log(`  ⚠ no projection on the board: ${missing.map(m => m.name || m.playerId).join(', ')}`);
   console.log('');
 }
 
+// The lock clock in one line: the deadline matters as much as the move.
+function lockNote() {
+  if (!entries || week !== state.scoringPeriodId) return [];
+  const as = atIdx >= 0 ? ` (as of ${describeKickoff(now)})` : '';
+  if (!state.kickoffs) return [`⚠ this sync has no kickoff times — game locks NOT checked. Re-run \`season.js sync\`.${as}`];
+  const next = [...kickoff.values()].filter(k => k != null && k > now).sort((a, b) => a - b)[0];
+  const nextNote = next ? `next kickoff ${describeKickoff(next)}` : 'every game has kicked off';
+  if (!locked.size) return [`nothing locked yet · ${nextNote}${as}`];
+  return [`locked, game started: ${entries.filter(e => locked.has(e.playerId)).map(e => e.name).join(', ')} · ${nextNote}${as}`];
+}
+
 const wp = p => p.wpts ?? weekPoints(p, week, cfg) ?? 0;
 const line = p => `${(p.name || '').padEnd(24)} ${(p.pos || '').padEnd(4)} ${String(wp(p)).padStart(5)}`;
 const flag = p => (p.injuryStatus && !['ACTIVE', 'NORMAL'].includes(p.injuryStatus)) ? `  (${p.injuryStatus})` : '';
+const lockTag = p => locked.has(p.id) ? '  LOCKED' : '';
+const locksAt = p => kickoff.get(p.id) ? `   locks ${describeKickoff(kickoff.get(p.id))}` : '';
 // Why is this player worth nothing this week? A bye is structural; a zeroed line is news.
 const zeroNote = p => isBye(p, week) ? '  (BYE)'
   : isZeroProjected(p, week) ? '  ⚠ NO PROJECTION — ESPN expects him to miss' : '';
@@ -109,23 +124,31 @@ const MATERIAL = 1.0;
 // -------------------------------------------------------------------------------- lineup
 
 if (cmd === 'lineup' || !cmd) {
-  const opt = optimizeLineup(myRoster, week, cfg, { unavailable });
+  const opts = { unavailable, locked };
+  const opt = optimizeLineup(myRoster, week, cfg, opts);
 
   if (currentIds) {
-    const d = lineupDelta(myRoster, currentIds, week, cfg, { unavailable });
+    const d = lineupDelta(myRoster, currentIds, week, cfg, opts);
     const startingOut = myRoster.filter(p => currentIds.has(p.id) && unavailable.has(p.id));
-    const material = d.gain >= MATERIAL || startingOut.length > 0;
+    // Ruled out and already locked is a zero nobody can fix any more: worth saying, not a change.
+    const fixable = startingOut.filter(p => !locked.has(p.id));
+    const tooLate = startingOut.filter(p => locked.has(p.id));
+    const material = d.gain >= MATERIAL || fixable.length > 0;
 
     header(!d.moves.length ? 'LINEUP IS ALREADY OPTIMAL'
       : material ? `${d.moves.length} LINEUP CHANGE${d.moves.length > 1 ? 'S' : ''} NEEDED   +${d.gain} pts`
-      : `lineup is optimal within ${MATERIAL} pt — ${d.moves.length} optional tweak${d.moves.length > 1 ? 's' : ''} below`);
+      : `lineup is optimal within ${MATERIAL} pt — ${d.moves.length} optional tweak${d.moves.length > 1 ? 's' : ''} below`,
+      lockNote());
 
-    if (startingOut.length) {
-      console.log(`   ⚠ RULED OUT BUT STILL STARTING: ${startingOut.map(p => `${p.name} (${p.injuryStatus})`).join(', ')}\n`);
+    if (fixable.length) {
+      console.log(`   ⚠ RULED OUT BUT STILL STARTING: ${fixable.map(p => `${p.name} (${p.injuryStatus})`).join(', ')}\n`);
+    }
+    if (tooLate.length) {
+      console.log(`   ruled out and already locked in, too late to change: ${tooLate.map(p => `${p.name} (${p.injuryStatus})`).join(', ')}\n`);
     }
     if (d.moves.length) {
-      for (const m of d.moves.filter(m => m.action === 'START')) console.log(`   START   ${line(m)}${flag(m)}`);
-      for (const m of d.moves.filter(m => m.action === 'BENCH')) console.log(`   BENCH   ${line(m)}${zeroNote(m)}${flag(m)}`);
+      for (const m of d.moves.filter(m => m.action === 'START')) console.log(`   START   ${line(m)}${flag(m)}${locksAt(m)}`);
+      for (const m of d.moves.filter(m => m.action === 'BENCH')) console.log(`   BENCH   ${line(m)}${zeroNote(m)}${flag(m)}${locksAt(m)}`);
       console.log(`\n   currently set ${d.currentPoints}  ->  optimal ${opt.total}\n`);
     }
   } else {
@@ -136,13 +159,13 @@ if (cmd === 'lineup' || !cmd) {
   for (const l of opt.lineup) {
     if (l.empty) { console.log(`   ${String(l.slot).padEnd(5)}   — EMPTY —`); continue; }
     const mark = currentIds ? (currentIds.has(l.id) ? ' ' : '*') : ' ';
-    console.log(`   ${String(l.slot).padEnd(5)} ${mark} ${line(l)}${zeroNote(l)}${flag(l)}`);
+    console.log(`   ${String(l.slot).padEnd(5)} ${mark} ${line(l)}${zeroNote(l)}${flag(l)}${lockTag(l)}`);
   }
   if (opt.bench.length) {
     console.log('\n  BENCH:');
     for (const b of opt.bench) {
       const mark = currentIds ? (currentIds.has(b.id) ? '*' : ' ') : ' ';
-      console.log(`         ${mark} ${line(b)}${zeroNote(b)}${flag(b)}`);
+      console.log(`         ${mark} ${line(b)}${zeroNote(b)}${flag(b)}${lockTag(b)}`);
     }
   }
   if (currentIds) console.log('\n  * = differs from your currently-set lineup');
@@ -242,5 +265,5 @@ if (cmd === 'lineup' || !cmd) {
   console.log('');
 
 } else {
-  console.log('usage: node scripts/season.js sync | lineup [week] | roster | waivers [week] | byes');
+  console.log('usage: node scripts/season.js sync | lineup [week] | roster | waivers [week] [to] | byes   [--at <time>]');
 }

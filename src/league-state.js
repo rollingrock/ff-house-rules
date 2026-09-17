@@ -5,17 +5,19 @@
 // filtered by ESPN's GLOBAL rostered percentage rather than by who is actually unowned in THIS
 // league. In a 10-team league half of those "free agents" are sitting on somebody's bench.
 //
-// This module answers four questions from one ESPN call:
+// This module answers five questions from one league call plus the public pro schedule:
 //   - which players does each team own            -> the real free-agent pool
 //   - which of mine are currently in a start slot -> what the lineup advice must diff against
 //   - who is hurt                                 -> ESPN's own injury designation
 //   - what is the schedule                        -> captured now so matchup work needs no refetch
+//   - when does each player's game kick off       -> which lineup moves are still possible
 //
 // The fetch needs cookies. Everything degrades gracefully without them: callers fall back to the
 // draft file and say so, so a fresh public clone with no credentials still works.
 
 import fs from 'node:fs';
-import { espnGet } from './espn-live.js';
+import { espnGet, fetchProSchedule, haveCookies } from './espn-live.js';
+import { NFL_TEAM } from './espn.js';
 import { SLOT } from './statmap.js';
 import { statePath, ensureDirs } from './league.js';
 
@@ -37,10 +39,14 @@ const SLOT_NAME = Object.fromEntries(Object.entries(SLOT).map(([k, v]) => [v, k]
  *
  * `mRoster` carries each entry's `lineupSlotId`, which is the currently-set lineup - the thing
  * the optimiser has to be compared against. `mTeam` gives records and names, `mMatchup` the
- * schedule. One call, three views, because ESPN rate-limits and this runs on a laptop.
+ * schedule. One call, three views, because ESPN rate-limits and this runs on a laptop. The pro
+ * schedule is a separate public endpoint, fetched alongside.
  */
 export async function fetchLeagueState(cfg, root) {
-  const r = await espnGet(cfg, root, ['mRoster', 'mTeam', 'mMatchup', 'mSettings']);
+  const [r, sched] = await Promise.all([
+    espnGet(cfg, root, ['mRoster', 'mTeam', 'mMatchup', 'mSettings']),
+    fetchProSchedule(cfg.season),
+  ]);
   if (r.error) return r;
   const d = r.data;
 
@@ -58,9 +64,12 @@ export async function fetchLeagueState(cfg, root) {
         playerId: e.playerId,
         name: p.fullName ?? null,
         pos: POSITION_BY_ID[p.defaultPositionId] ?? (e.playerId < -1 ? 'DST' : null),
+        proTeamId: p.proTeamId ?? null,
         slotId,
         slot: SLOT_NAME[slotId] ?? String(slotId),
         starter: !NON_STARTING.has(slotId),
+        // ESPN's own lock flag: exact, but only as of this request. lockInfo also uses kickoffs.
+        lineupLocked: !!e.playerPoolEntry?.lineupLocked,
         injuryStatus: p.injuryStatus ?? null,
         acquisitionType: e.acquisitionType ?? null,
       };
@@ -100,7 +109,29 @@ export async function fetchLeagueState(cfg, root) {
     ownedIds,
     ownerByPlayer,
     schedule,
+    // Kickoff per pro team per week, so locks stay right long after the sync. Null when the
+    // schedule request failed - callers then say that locks were not checked.
+    kickoffs: sched.kickoffs ?? null,
+    kickoffsError: sched.error ?? null,
   };
+}
+
+/**
+ * Fetch, confirm my team is in it, save. `{ state, file }`, or `{ error }` worded to print as-is.
+ * Shared by `season.js sync` and `weekly.js` so the two cannot drift on what a good sync is.
+ */
+export async function syncLeague(cfg, root) {
+  if (!haveCookies(root)) return { error: 'No ESPN cookies. Add config/espn-cookies.json with espn_s2 and SWID.' };
+  const s = await fetchLeagueState(cfg, root);
+  if (s.error) return { error: s.error };
+  if (!s.myEspnTeamId) {
+    return {
+      error: `Could not find your team. Config myTeamName is ${JSON.stringify(cfg.myTeamName)}; ESPN has:\n`
+        + s.teams.map(t => `    ${t.name}`).join('\n')
+        + '\n\n  Fix myTeamName in the config, or set myEspnTeamId.',
+    };
+  }
+  return { state: s, file: saveState(cfg.id, s) };
 }
 
 export function saveState(id, state) {
@@ -131,7 +162,38 @@ export function describeAge(ms) {
   return `${Math.round(h / 24)}d ago`;
 }
 
+/** "Sun 12:00 PM", in the machine's local time zone. */
+export const describeKickoff = ms =>
+  new Date(ms).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+
 export const myTeam = state => state?.teams?.find(t => t.espnId === state.myEspnTeamId) || null;
+
+/**
+ * Which roster entries can no longer move in `week` as of `now`, and when each one kicks off.
+ *
+ * A slot locks at the player's own kickoff, so by Sunday morning the Thursday game is fixed, and
+ * advice to bench somebody who has already played is advice nobody can take. ESPN's
+ * `lineupLocked` is exact but frozen at sync time; the kickoff table is what keeps this right
+ * afterwards. Only the week ESPN is scoring can be locked - any later week is still wide open.
+ *
+ * A sync from before kickoffs were stored has no table, so only ESPN's flag applies.
+ */
+export function lockInfo(state, entries, week, now = Date.now()) {
+  const table = state?.kickoffs?.[week] || {};
+  const live = week === state?.scoringPeriodId;
+  const locked = new Set(), kickoff = new Map();
+  for (const e of entries) {
+    const k = table[e.proTeamId] ?? null;
+    kickoff.set(e.playerId, k);
+    if (live && (e.lineupLocked || (k != null && k <= now))) locked.add(e.playerId);
+  }
+  return { locked, kickoff };
+}
+
+const PRO_TEAM_ID = Object.fromEntries(Object.entries(NFL_TEAM).map(([id, abbrev]) => [abbrev, Number(id)]));
+
+/** Kickoff for a board player, who carries a team abbreviation rather than ESPN's pro team id. */
+export const teamKickoff = (state, week, team) => state?.kickoffs?.[week]?.[PRO_TEAM_ID[team]] ?? null;
 
 /**
  * Join a team's ESPN roster onto the scored board.

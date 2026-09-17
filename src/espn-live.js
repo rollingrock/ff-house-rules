@@ -34,6 +34,30 @@ export async function espnGet(cfg, root, views) {
   } catch (e) { return { error: `ESPN request failed: ${e.message}` }; }
 }
 
+/**
+ * Kickoff of every pro game: `{ kickoffs: { [week]: { [proTeamId]: epoch ms } } }`, or `{ error }`.
+ *
+ * A lineup slot locks at the player's own team's kickoff. Roster entries carry ESPN's
+ * `lineupLocked` flag too, but that is only true as of the request - a Saturday sync still says
+ * "unlocked" on Sunday afternoon. Kickoff times keep answering correctly. Public; no cookies.
+ */
+export async function fetchProSchedule(season) {
+  try {
+    const r = await fetch(`${BASE}/${season}?view=proTeamSchedules_wl`, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return { error: `ESPN schedule returned ${r.status}` };
+    const kickoffs = {};
+    for (const t of (await r.json()).settings?.proTeams || []) {
+      for (const [week, games] of Object.entries(t.proGamesByScoringPeriod || {})) {
+        for (const g of games) if (g.date && g.validForLocking !== false) (kickoffs[week] ||= {})[t.id] = g.date;
+      }
+    }
+    return { kickoffs };
+  } catch (e) { return { error: `ESPN schedule request failed: ${e.message}` }; }
+}
+
 const teamName = t => (t.name || `${t.location || ''} ${t.nickname || ''}`).trim();
 
 /**

@@ -52,49 +52,61 @@ export const isUnavailable = p => UNAVAILABLE_STATUS.has(p?.injuryStatus);
  *
  * Players whose id is in `opts.unavailable` are never assigned a slot, but they still appear
  * on the bench: a ruled-out starter should stay visible, not quietly disappear.
+ *
+ * Players whose id is in `opts.locked` have kicked off and cannot move. A locked starter keeps
+ * the slot ESPN has him in (`espnSlot`) and scores what he scores - zero if ruled out - and a
+ * locked bench player cannot be started. Only what is still movable gets rearranged.
  */
 export function optimizeLineup(roster, week, cfg, opts = {}) {
   const st = cfg.roster.starters;
   const blocked = opts.unavailable || new Set();
+  const locked = opts.locked || new Set();
   const pool = roster
     .map(p => ({ ...p, wpts: weekPoints(p, week, cfg) }))
     .filter(p => p.wpts != null);
   const bye = roster.filter(p => isBye(p, week));
 
   const byPos = {};
-  for (const p of pool) { if (!blocked.has(p.id)) (byPos[p.pos] ||= []).push(p); }
+  for (const p of pool) { if (!blocked.has(p.id) && !locked.has(p.id)) (byPos[p.pos] ||= []).push(p); }
   for (const k in byPos) byPos[k].sort((a, b) => b.wpts - a.wpts);
+
+  const FLEXNAMES = flexSlotNames(cfg);
+  const FLEX = flexSlots(cfg);
+  const fixed = Object.keys(st).filter(s => !FLEXNAMES.has(s) && s !== 'DP');
+  const known = new Set([...fixed, ...FLEX.map(f => f.name), 'DP']);
+  // ESPN's slot name normally matches the config's; if a config has drifted, go by position.
+  const slotFor = p => known.has(p.espnSlot) ? p.espnSlot
+    : fixed.includes(p.pos) ? p.pos
+    : FLEX.find(f => f.eligible.includes(p.pos))?.name
+      ?? (cfg.roster.dpEligible.includes(p.pos) ? 'DP' : p.espnSlot);
+  const pinned = roster.filter(p => locked.has(p.id) && p.starter).map(p => ({
+    ...p, wpts: blocked.has(p.id) ? 0 : (weekPoints(p, week, cfg) ?? 0), locked: true, pin: slotFor(p),
+  }));
 
   const used = new Set();
   const lineup = [];
-  const fill = (slot, pos, n) => {
+  const best = positions => positions.length === 1
+    ? (byPos[positions[0]] || []).find(x => !used.has(x.id))
+    : positions.flatMap(x => byPos[x] || []).filter(x => !used.has(x.id)).sort((a, b) => b.wpts - a.wpts)[0];
+  // Locked starters take their own slot first; the best movable player fills what is left.
+  const place = (slot, n, positions) => {
+    for (const p of pinned) {
+      if (p.pin === slot && !used.has(p.id)) { used.add(p.id); lineup.push({ slot, ...p }); n--; }
+    }
     for (let i = 0; i < n; i++) {
-      const p = (byPos[pos] || []).find(x => !used.has(x.id));
+      const p = best(positions);
       if (p) { used.add(p.id); lineup.push({ slot, ...p }); }
       else lineup.push({ slot, empty: true });
     }
   };
-  const FLEXNAMES = flexSlotNames(cfg);
-  for (const [pos, n] of Object.entries(st)) {
-    if (FLEXNAMES.has(pos) || pos === 'DP') continue;
-    fill(pos, pos, n);
-  }
+  for (const pos of fixed) place(pos, st[pos], [pos]);
   // FLEX: best remaining flex-eligible
-  for (const fs of flexSlots(cfg)) {
-    for (let i = 0; i < fs.n; i++) {
-      const cand = fs.eligible.flatMap(x => byPos[x] || [])
-        .filter(x => !used.has(x.id)).sort((a, b) => b.wpts - a.wpts)[0];
-      if (cand) { used.add(cand.id); lineup.push({ slot: fs.name, ...cand }); }
-      else lineup.push({ slot: fs.name, empty: true });
-    }
-  }
+  for (const fs of FLEX) place(fs.name, fs.n, fs.eligible);
   // DP
-  for (let i = 0; i < (st.DP || 0); i++) {
-    const cand = cfg.roster.dpEligible.flatMap(x => byPos[x] || [])
-      .filter(x => !used.has(x.id)).sort((a, b) => b.wpts - a.wpts)[0];
-    if (cand) { used.add(cand.id); lineup.push({ slot: 'DP', ...cand }); }
-    else lineup.push({ slot: 'DP', empty: true });
-  }
+  place('DP', st.DP || 0, cfg.roster.dpEligible);
+  // A locked starter no slot above claimed is still starting - never drop him silently.
+  for (const p of pinned) if (!used.has(p.id)) { used.add(p.id); lineup.push({ slot: p.espnSlot, ...p }); }
+
   const bench = pool.filter(p => !used.has(p.id)).sort((a, b) => b.wpts - a.wpts);
   const total = lineup.reduce((a, b) => a + (b.wpts || 0), 0);
   return { lineup, bench, bye, total: Math.round(total * 10) / 10 };
@@ -106,6 +118,9 @@ export function optimizeLineup(roster, week, cfg, opts = {}) {
  *
  * A ruled-out player already in the lineup still scores zero, so his projection is not
  * counted toward the current total - otherwise the tool would understate what a swap is worth.
+ *
+ * Pass `opts.locked` on game day: a player whose game has started can never appear as a move,
+ * because optimizeLineup leaves him exactly where he is.
  */
 export function lineupDelta(roster, currentStarterIds, week, cfg, opts = {}) {
   const blocked = opts.unavailable || new Set();

@@ -151,6 +151,12 @@ command prints which source it used and how old it is.
 point are marked optional. A player ESPN has **ruled out** is always flagged: his weekly
 projection often stays non-zero, so nothing else stops you starting him.
 
+It also knows about **game locks**. A slot locks at the player's own kickoff, so by Sunday
+morning the Thursday game is fixed: a locked starter stays put (a ruled-out one is reported as
+too late to change), a locked bench player is never suggested, and every move shows when it
+locks. `sync` stores each game's kickoff time, so this stays right long after the sync itself;
+`--at 2026-09-20T11:00` asks what could still be changed at a given moment.
+
 `byes` reports weeks where a *starting slot* scores zero, which is not the same as counting who
 is out. Two backups on bye cost nothing; one kicker on bye with no second kicker is a guaranteed
 zero in a slot you are required to fill. In a zero-bench league every bye lands here by
