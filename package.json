@@ -13,6 +13,7 @@
     "board": "node scripts/build-board.js",
     "config": "node scripts/make-league-config.js",
     "sweep": "node scripts/sweep.js",
+    "weekly": "node scripts/weekly.js",
     "lineup": "node scripts/season.js lineup",
     "byes": "node scripts/season.js byes"
   },

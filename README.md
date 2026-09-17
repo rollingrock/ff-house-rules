@@ -134,6 +134,7 @@ Until then: **type the picks.** It takes about four keystrokes every thirty seco
 ## In-season
 
 ```bash
+node scripts/weekly.js                  # EVERY league: refresh, sync, and only what needs doing
 node scripts/season.js sync             # pull the league as it is right now
 node scripts/season.js lineup [week]    # what to CHANGE, not just the optimum
 node scripts/season.js roster           # your roster as ESPN has it
@@ -141,6 +142,13 @@ node scripts/season.js waivers [w] [to] # free agents, scored as add+drop swaps
 node scripts/season.js byes             # weeks a starting slot scores zero
 node scripts/overrides.js               # audit the news overlay against ESPN
 ```
+
+**`weekly` is the routine.** For every configured league it refreshes the ESPN dump, rebuilds
+the board, syncs, and prints only what needs doing: lineup changes and the time each one locks,
+starting slots that score zero this week with the best free-agent stream for each, injury
+designations on starters, and the next week with a hole. It ends with a to-do list, so a quiet
+week says so. `--no-refresh` skips the download for a quick game-day re-check; `--week 5`
+previews a later week against today's rosters.
 
 **Run `sync` first, and again after any transaction.** Without it the roster comes from the
 draft file — correct right up until the first waiver claim, and wrong forever after. Every
